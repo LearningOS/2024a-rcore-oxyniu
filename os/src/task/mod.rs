@@ -16,6 +16,7 @@ mod task;
 
 use crate::config::{MAX_APP_NUM, MAX_SYSCALL_NUM};
 use crate::loader::{get_num_app, init_app_cx};
+use crate::timer::get_time;
 use crate::sync::UPSafeCell;
 use lazy_static::*;
 use switch::__switch;
@@ -86,7 +87,7 @@ impl TaskManager {
     /// But in ch3, we load apps statically, so the first task is a real app.
     fn run_first_task(&self) -> ! {
         let mut inner = self.inner.exclusive_access();
-        inner.tasks_first_run_time[0] = crate::timer::get_time_us();
+        inner.tasks_first_run_time[0] = get_time();
         let task0 = &mut inner.tasks[0];
         task0.task_status = TaskStatus::Running;
         let next_task_cx_ptr = &task0.task_cx as *const TaskContext;
@@ -128,7 +129,7 @@ impl TaskManager {
     /// or there is no `Ready` task and we can exit with all applications completed
     fn run_next_task(&self) {
         if let Some(next) = self.find_next_task() {
-            self.inner.exclusive_access().tasks_first_run_time[next] = crate::timer::get_time_us();
+            self.inner.exclusive_access().tasks_first_run_time[next] = get_time();
             let mut inner = self.inner.exclusive_access();
             let current = inner.current_task;
             inner.tasks[next].task_status = TaskStatus::Running;
