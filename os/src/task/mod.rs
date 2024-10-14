@@ -129,8 +129,10 @@ impl TaskManager {
     /// or there is no `Ready` task and we can exit with all applications completed
     fn run_next_task(&self) {
         if let Some(next) = self.find_next_task() {
-            self.inner.exclusive_access().tasks_first_run_time[next] = get_time_ms();
             let mut inner = self.inner.exclusive_access();
+            if inner.tasks_first_run_time[next] == 0 {
+                inner.tasks_first_run_time[next] = get_time_ms();
+            }
             let current = inner.current_task;
             inner.tasks[next].task_status = TaskStatus::Running;
             inner.current_task = next;
