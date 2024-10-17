@@ -1,11 +1,11 @@
 //! Process management syscalls
 
 use crate::{
-    config::MAX_SYSCALL_NUM, mm::translate_and_write_bytes,
+    config::MAX_SYSCALL_NUM, mm::{frame_alloc, translate_and_write_bytes, PTEFlags, PageTable, PhysPageNum, VirtPageNum},
     task::{
-        change_program_brk, current_user_token, exit_current_and_run_next, suspend_current_and_run_next, get_current_task_id, get_task_syscall_times, get_task_first_run_time, TaskStatus
+        change_program_brk, current_user_token, exit_current_and_run_next, get_current_task_id, get_task_first_run_time, get_task_syscall_times, suspend_current_and_run_next, TaskStatus
     },
-    timer::{get_time_us, get_time_ms},
+    timer::{get_time_ms, get_time_us},
 };
 
 #[repr(C)]
@@ -87,13 +87,64 @@ pub fn sys_task_info(_ti: *mut TaskInfo) -> isize {
 // YOUR JOB: Implement mmap.
 pub fn sys_mmap(_start: usize, _len: usize, _port: usize) -> isize {
     trace!("kernel: sys_mmap NOT IMPLEMENTED YET!");
-    -1
+    // _start should be aligned to 4096, or return -1
+    if _start % 4096 != 0 {
+        return -1;
+    }
+    // the lower 3 bits of _port cannot be all zeros
+    if _port & 0b111 == 0 {
+        return -1;
+    }
+    // other bits of _port should be all zeros
+    if _port & !0b111 == 0 {
+        return -1;
+    }
+
+    // real_length is the length of the memory that should be allocated, ceil to 4096
+    let real_length = (_len + 4095) / 4096 * 4096;
+
+    let mut pte_flags = PTEFlags::empty();
+    pte_flags |= PTEFlags::U;
+    if _port & 0b1 != 0 {
+        pte_flags |= PTEFlags::R;
+    }
+    if _port & 0b10 != 0 {
+        pte_flags |= PTEFlags::W;
+    }
+    if _port & 0b100 != 0 {
+        pte_flags |= PTEFlags::X;
+    }
+
+    for i in 0..real_length / 4096 {
+        // try to allocate a frame
+        let result = frame_alloc();
+        if result.is_none() {
+            return -1;
+        }
+
+        let frame = result.unwrap();
+        // map the frame to _start + i * 4096
+        let mut page_table = PageTable::from_token(current_user_token());
+        page_table.map(VirtPageNum::from(_start + i * 4096), PhysPageNum::from(frame.ppn), pte_flags);
+    }
+    0
 }
 
 // YOUR JOB: Implement munmap.
 pub fn sys_munmap(_start: usize, _len: usize) -> isize {
     trace!("kernel: sys_munmap NOT IMPLEMENTED YET!");
-    -1
+    // _start should be aligned to 4096, or return -1
+    if _start % 4096 != 0 {
+        return -1;
+    }
+    // real_length is the length of the memory that should be deallocated, ceil to 4096
+    let real_length = (_len + 4095) / 4096 * 4096;
+
+    for i in 0..real_length / 4096 {
+        let mut page_table = PageTable::from_token(current_user_token());
+        page_table.unmap(VirtPageNum::from(_start + i * 4096));
+    }
+    0
 }
 /// change data segment size
 pub fn sys_sbrk(size: i32) -> isize {
