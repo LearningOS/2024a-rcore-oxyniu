@@ -14,13 +14,16 @@ mod switch;
 #[allow(clippy::module_inception)]
 mod task;
 
+use crate::config::MAX_SYSCALL_NUM;
 use crate::loader::{get_app_data, get_num_app};
 use crate::sync::UPSafeCell;
 use crate::trap::TrapContext;
+use crate::timer::get_time_ms;
 use alloc::vec::Vec;
 use lazy_static::*;
 use switch::__switch;
 pub use task::{TaskControlBlock, TaskStatus};
+use alloc::collections::BTreeMap;
 
 pub use context::TaskContext;
 
@@ -46,6 +49,10 @@ struct TaskManagerInner {
     tasks: Vec<TaskControlBlock>,
     /// id of current `Running` task
     current_task: usize,
+
+    tasks_syscall_times: BTreeMap<usize, BTreeMap<usize, u32>>,
+
+    tasks_first_run_time: BTreeMap<usize, usize>,
 }
 
 lazy_static! {
@@ -64,6 +71,8 @@ lazy_static! {
                 UPSafeCell::new(TaskManagerInner {
                     tasks,
                     current_task: 0,
+                    tasks_syscall_times: BTreeMap::new(),
+                    tasks_first_run_time: BTreeMap::new(),
                 })
             },
         }
@@ -77,6 +86,7 @@ impl TaskManager {
     /// But in ch4, we load apps statically, so the first task is a real app.
     fn run_first_task(&self) -> ! {
         let mut inner = self.inner.exclusive_access();
+        inner.tasks_first_run_time.insert(0, get_time_ms());
         let next_task = &mut inner.tasks[0];
         next_task.task_status = TaskStatus::Running;
         let next_task_cx_ptr = &next_task.task_cx as *const TaskContext;
@@ -138,6 +148,9 @@ impl TaskManager {
     fn run_next_task(&self) {
         if let Some(next) = self.find_next_task() {
             let mut inner = self.inner.exclusive_access();
+            if inner.tasks_first_run_time.get(&next).is_none() {
+                inner.tasks_first_run_time.insert(next, get_time_ms());
+            }
             let current = inner.current_task;
             inner.tasks[next].task_status = TaskStatus::Running;
             inner.current_task = next;
@@ -152,6 +165,31 @@ impl TaskManager {
         } else {
             panic!("All applications completed!");
         }
+    }
+
+    fn update_syscall_times(&self, syscall_id: usize) {
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        let task_times = inner.tasks_syscall_times.entry(current).or_insert(BTreeMap::new());
+        let times = task_times.entry(syscall_id).or_insert(0);
+        *times += 1;
+    }
+
+    fn get_task_syscall_times(&self, task_id: usize) -> [u32; MAX_SYSCALL_NUM] {
+        let inner = self.inner.exclusive_access();
+        let mut syscall_times = [0; MAX_SYSCALL_NUM];
+        for (syscall_id, times) in inner.tasks_syscall_times.get(&task_id).unwrap().iter() {
+            syscall_times[*syscall_id] = *times;
+        }
+        syscall_times
+    }
+
+    fn get_current_task_id(&self) -> usize {
+        self.inner.exclusive_access().current_task
+    }
+
+    fn get_task_first_run_time(&self, task_id: usize) -> usize {
+        self.inner.exclusive_access().tasks_first_run_time.get(&task_id).unwrap().clone()
     }
 }
 
@@ -201,4 +239,24 @@ pub fn current_trap_cx() -> &'static mut TrapContext {
 /// Change the current 'Running' task's program break
 pub fn change_program_brk(size: i32) -> Option<usize> {
     TASK_MANAGER.change_current_program_brk(size)
+}
+
+/// Update the syscall times of current task
+pub fn update_current_task_syscall_times(syscall_id: usize) {
+    TASK_MANAGER.update_syscall_times(syscall_id);
+}
+
+/// Get the syscall times of a task
+pub fn get_task_syscall_times(task_id: usize) -> [u32; MAX_SYSCALL_NUM] {
+    TASK_MANAGER.get_task_syscall_times(task_id)
+}
+
+/// Get the current task id
+pub fn get_current_task_id() -> usize {
+    TASK_MANAGER.get_current_task_id()
+}
+
+/// Get the first run time of a task
+pub fn get_task_first_run_time(task_id: usize) -> usize {
+    TASK_MANAGER.get_task_first_run_time(task_id)
 }
