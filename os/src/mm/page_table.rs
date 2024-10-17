@@ -171,3 +171,24 @@ pub fn translated_byte_buffer(token: usize, ptr: *const u8, len: usize) -> Vec<&
     }
     v
 }
+
+/// write data to the ptr[u8] array with LENGTH len through page table
+pub fn translate_and_write_bytes(token: usize, ptr: *const u8, len: usize, data: &[u8]) {
+    let page_table = PageTable::from_token(token);
+    let mut start = ptr as usize;
+    let end = start + len;
+    let mut data_start = 0;
+    while start < end {
+        let start_va = VirtAddr::from(start);
+        let mut vpn = start_va.floor();
+        let ppn = page_table.translate(vpn).unwrap().ppn();
+        vpn.step();
+        let mut end_va: VirtAddr = vpn.into();
+        end_va = end_va.min(VirtAddr::from(end));
+        let data_end = data_start + end_va.page_offset() - start_va.page_offset();
+        ppn.get_bytes_array()[start_va.page_offset()..end_va.page_offset()]
+            .copy_from_slice(&data[data_start..data_end]);
+        start = end_va.into();
+        data_start = data_end;
+    }
+}
