@@ -1,7 +1,7 @@
 //! Process management syscalls
 
 use crate::{
-    config::MAX_SYSCALL_NUM, mm::{frame_alloc, translate_and_write_bytes, PTEFlags, PageTable, PhysPageNum, VirtPageNum},
+    config::MAX_SYSCALL_NUM, mm::{frame_alloc, translate_and_write_bytes, PTEFlags, PageTable, VirtPageNum},
     task::{
         change_program_brk, current_user_token, exit_current_and_run_next, get_current_task_id, get_task_first_run_time, get_task_syscall_times, suspend_current_and_run_next, TaskStatus
     },
@@ -98,7 +98,7 @@ pub fn sys_mmap(_start: usize, _len: usize, _port: usize) -> isize {
         return -1;
     }
     // other bits of _port should be all zeros
-    if _port & !0b111 == 0 {
+    if _port & !0b111 != 0 {
         error!("other bits of port should be all zeros");
         return -1;
     }
@@ -127,9 +127,13 @@ pub fn sys_mmap(_start: usize, _len: usize, _port: usize) -> isize {
         }
 
         let frame = result.unwrap();
+        trace!("ppn: {}", frame.ppn.0);
         // map the frame to _start + i * 4096
         let mut page_table = PageTable::from_token(current_user_token());
-        page_table.map(VirtPageNum::from(_start + i * 4096), PhysPageNum::from(frame.ppn), pte_flags);
+
+        let virt = VirtPageNum::from((_start >> 12) + i);
+        trace!("virt: {:?}", virt);
+        page_table.map(virt, frame.ppn, pte_flags);
     }
     trace!("kernel: sys_mmap success");
     0
@@ -148,7 +152,7 @@ pub fn sys_munmap(_start: usize, _len: usize) -> isize {
 
     for i in 0..real_length / 4096 {
         let mut page_table = PageTable::from_token(current_user_token());
-        page_table.unmap(VirtPageNum::from(_start + i * 4096));
+        page_table.unmap(VirtPageNum::from((_start >> 12) + i));
     }
     trace!("kernel: sys_munmap success");
     0
