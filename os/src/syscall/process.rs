@@ -89,14 +89,17 @@ pub fn sys_mmap(_start: usize, _len: usize, _port: usize) -> isize {
     trace!("kernel: sys_mmap NOT IMPLEMENTED YET!");
     // _start should be aligned to 4096, or return -1
     if _start % 4096 != 0 {
+        error!("start should be aligned to 4096");
         return -1;
     }
     // the lower 3 bits of _port cannot be all zeros
     if _port & 0b111 == 0 {
+        error!("the lower 3 bits of port cannot be all zeros");
         return -1;
     }
     // other bits of _port should be all zeros
     if _port & !0b111 == 0 {
+        error!("other bits of port should be all zeros");
         return -1;
     }
 
@@ -119,6 +122,7 @@ pub fn sys_mmap(_start: usize, _len: usize, _port: usize) -> isize {
         // try to allocate a frame
         let result = frame_alloc();
         if result.is_none() {
+            error!("frame_alloc failed");
             return -1;
         }
 
@@ -127,6 +131,7 @@ pub fn sys_mmap(_start: usize, _len: usize, _port: usize) -> isize {
         let mut page_table = PageTable::from_token(current_user_token());
         page_table.map(VirtPageNum::from(_start + i * 4096), PhysPageNum::from(frame.ppn), pte_flags);
     }
+    trace!("kernel: sys_mmap success");
     0
 }
 
@@ -135,6 +140,7 @@ pub fn sys_munmap(_start: usize, _len: usize) -> isize {
     trace!("kernel: sys_munmap NOT IMPLEMENTED YET!");
     // _start should be aligned to 4096, or return -1
     if _start % 4096 != 0 {
+        error!("start should be aligned to 4096");
         return -1;
     }
     // real_length is the length of the memory that should be deallocated, ceil to 4096
@@ -144,6 +150,7 @@ pub fn sys_munmap(_start: usize, _len: usize) -> isize {
         let mut page_table = PageTable::from_token(current_user_token());
         page_table.unmap(VirtPageNum::from(_start + i * 4096));
     }
+    trace!("kernel: sys_munmap success");
     0
 }
 /// change data segment size
