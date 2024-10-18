@@ -191,6 +191,20 @@ impl TaskManager {
     fn get_task_first_run_time(&self, task_id: usize) -> usize {
         self.inner.exclusive_access().tasks_first_run_time.get(&task_id).unwrap().clone()
     }
+
+    /// map new pages for current task
+    pub fn mmap_current_task(&self, start: usize, len: usize, perm: usize) -> isize {
+        let mut inner = self.inner.exclusive_access();
+        let current_task = inner.current_task;
+        inner.tasks[current_task].memory_set.map_new_pages(start, len, perm)
+    }
+
+    /// unmap pages for current task
+    pub fn unmap_current_task(&self, start: usize, len: usize) -> isize{
+        let mut inner = self.inner.exclusive_access();
+        let current_task = inner.current_task;
+        inner.tasks[current_task].memory_set.unmap_pages(start, len)
+    }
 }
 
 /// Run the first task in task list.

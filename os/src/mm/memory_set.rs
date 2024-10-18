@@ -262,6 +262,72 @@ impl MemorySet {
             false
         }
     }
+
+    /// map new pages
+    pub fn map_new_pages(&mut self, start: usize, len: usize, perm: usize) -> isize {
+        let mut map_permission = MapPermission::from_bits((perm << 1) as u8).unwrap();
+        map_permission |= MapPermission::U;
+        trace!(
+            "map_new_pages: start: {:#x}, len: {:#x}, perm: {:#x}",
+            start,
+            len,
+            perm
+        );
+
+        let start_va: VirtAddr = start.into();
+        let end_va: VirtAddr = (start + len).into();
+        trace!(
+            "map_new_pages: start_va: {:?}, end_va: {:?}, map_permission: {:?}",
+            start_va,
+            end_va,
+            map_permission
+        );
+
+        // detect is_mapped
+        let start_vpn = start_va.floor();
+        let end_vpn = end_va.ceil();
+        trace!("start_vpn: {:?}, end_vpn: {:?}", start_vpn, end_vpn);
+
+        for vpn in VPNRange::new(start_vpn, end_vpn) {
+            let test_vpn = self.translate(vpn);
+            if test_vpn.is_some() && test_vpn.unwrap().is_valid() {
+                error!("vpn: {:?} is mapped before mapping", vpn);
+                error!("{}",test_vpn.unwrap().is_valid());
+                return -1;
+            }
+        }
+
+        let mut map_area = MapArea::new(start_va, end_va, MapType::Framed, map_permission);
+
+        map_area.map(&mut self.page_table);
+        self.areas.push(map_area);
+        0
+    }
+
+    /// unmap pages
+    pub fn unmap_pages(&mut self, start: usize, len: usize) -> isize {
+        let start_va: VirtAddr = start.into();
+        let end_va: VirtAddr = (start + len).into();
+        let start_vpn = start_va.floor();
+        let end_vpn = end_va.ceil();
+        trace!("start_vpn: {:?}, end_vpn: {:?}", start_vpn, end_vpn);
+
+        for vpn in VPNRange::new(start_vpn, end_vpn) {
+            let test_vpn = self.translate(vpn);
+            if test_vpn.is_none() || !test_vpn.unwrap().is_valid() {
+                error!("vpn: {:?} is invalid before unmapping", vpn);
+                return -1;
+            }
+        }
+
+        for area in self.areas.iter_mut() {
+            if area.vpn_range.get_start() == start_va.floor() {
+                area.unmap(&mut self.page_table);
+                return 0;
+            }
+        }
+        -1
+    }
 }
 /// map area structure, controls a contiguous piece of virtual memory
 pub struct MapArea {
@@ -280,6 +346,13 @@ impl MapArea {
     ) -> Self {
         let start_vpn: VirtPageNum = start_va.floor();
         let end_vpn: VirtPageNum = end_va.ceil();
+        trace!(
+            "MapArea::new: start_va: {:?}, end_va: {:?}, start_vpn: {:?}, end_vpn: {:?}",
+            start_va,
+            end_va,
+            start_vpn,
+            end_vpn
+        );
         Self {
             vpn_range: VPNRange::new(start_vpn, end_vpn),
             data_frames: BTreeMap::new(),
@@ -301,6 +374,14 @@ impl MapArea {
         }
         let pte_flags = PTEFlags::from_bits(self.map_perm.bits).unwrap();
         page_table.map(vpn, ppn, pte_flags);
+        if pte_flags.contains(PTEFlags::U) {
+            trace!(
+                "map_one: vpn: {:?}, ppn: {:?}, pte_flags: {:?}",
+                vpn,
+                ppn,
+                pte_flags
+            );
+        }
     }
     #[allow(unused)]
     pub fn unmap_one(&mut self, page_table: &mut PageTable, vpn: VirtPageNum) {
