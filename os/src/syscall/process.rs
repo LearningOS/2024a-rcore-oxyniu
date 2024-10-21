@@ -6,9 +6,9 @@ use crate::{
     loader::get_app_data_by_name,
     mm::{translated_refmut, translated_str},
     task::{
-        add_task, current_task, current_user_token, exit_current_and_run_next,
-        suspend_current_and_run_next, TaskStatus,
+        add_task, current_task, current_user_token, exit_current_and_run_next, suspend_current_and_run_next, write_byte_current_task, TaskStatus
     },
+    timer::{get_time_us, get_time_ms}
 };
 
 #[repr(C)]
@@ -118,22 +118,52 @@ pub fn sys_waitpid(pid: isize, exit_code_ptr: *mut i32) -> isize {
 /// HINT: You might reimplement it with virtual memory management.
 /// HINT: What if [`TimeVal`] is splitted by two pages ?
 pub fn sys_get_time(_ts: *mut TimeVal, _tz: usize) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_get_time NOT IMPLEMENTED",
-        current_task().unwrap().pid.0
-    );
-    -1
+    let us = get_time_us();
+    let timeval_size = core::mem::size_of::<TimeVal>();
+    let return_val = TimeVal {
+        sec: us / 1_000_000,
+        usec: us % 1_000_000,
+    };
+    let return_val_bytes = unsafe {
+        core::slice::from_raw_parts(
+            &return_val as *const TimeVal as *const u8,
+            timeval_size,
+        )
+    };
+    let start = _ts as usize;
+    trace!("{}", start);
+    for i in 0..timeval_size {
+        write_byte_current_task(start + i, return_val_bytes[i]);
+    }
+    0
 }
 
 /// YOUR JOB: Finish sys_task_info to pass testcases
 /// HINT: You might reimplement it with virtual memory management.
 /// HINT: What if [`TaskInfo`] is splitted by two pages ?
 pub fn sys_task_info(_ti: *mut TaskInfo) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_task_info NOT IMPLEMENTED",
-        current_task().unwrap().pid.0
-    );
-    -1
+    let task_info: TaskInfo;
+    {
+        let task = current_task().unwrap();
+        let inner = task.inner_exclusive_access();
+        task_info = TaskInfo {
+            status: inner.task_status,
+            syscall_times: inner.syscall_times,
+            time: get_time_ms() - inner.init_time,
+        };
+    }
+    let task_info_size = core::mem::size_of::<TaskInfo>();
+    let task_info_bytes = unsafe {
+        core::slice::from_raw_parts(
+            &task_info as *const TaskInfo as *const u8,
+            task_info_size,
+        )
+    };
+    let start = _ti as usize;
+    for i in 0..task_info_size {
+        write_byte_current_task(start + i, task_info_bytes[i]);
+    }
+    0
 }
 
 /// YOUR JOB: Implement mmap.
