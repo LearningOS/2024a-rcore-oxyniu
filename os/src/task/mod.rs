@@ -159,3 +159,10 @@ pub fn unmap_current_task(start: usize, len: usize) -> isize {
     let mut inner = task.inner_exclusive_access();
     inner.memory_set.unmap_pages(start, len)
 }
+
+/// set the priority of current task
+pub fn set_priority_current_task(prio: usize) {
+    let task = current_task().unwrap();
+    let mut inner = task.inner_exclusive_access();
+    inner.priority = prio;
+}
