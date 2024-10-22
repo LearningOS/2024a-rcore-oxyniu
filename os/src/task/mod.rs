@@ -38,6 +38,9 @@ pub use processor::{
     Processor,
 };
 
+/// BigStride
+pub const BIG_STRIDE: usize = 1_000_000_007;
+
 /// Suspend the current 'Running' task and run the next task in task list.
 pub fn suspend_current_and_run_next() {
     // There must be an application running.
@@ -141,4 +144,18 @@ pub fn update_syscall_times(id: usize) {
     let task = current_task().unwrap();
     let mut inner = task.inner_exclusive_access();
     inner.syscall_times[id] += 1;
+}
+
+/// map new pages for current task
+pub fn mmap_current_task(start: usize, len: usize, perm: usize) -> isize {
+    let task = current_task().unwrap();
+    let mut inner = task.inner_exclusive_access();
+    inner.memory_set.map_new_pages(start, len, perm)
+}
+
+/// unmap pages for current task
+pub fn unmap_current_task(start: usize, len: usize) -> isize {
+    let task = current_task().unwrap();
+    let mut inner = task.inner_exclusive_access();
+    inner.memory_set.unmap_pages(start, len)
 }

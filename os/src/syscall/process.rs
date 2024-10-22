@@ -6,9 +6,9 @@ use crate::{
     loader::get_app_data_by_name,
     mm::{translated_refmut, translated_str},
     task::{
-        add_task, current_task, current_user_token, exit_current_and_run_next, suspend_current_and_run_next, write_byte_current_task, TaskStatus
+        add_task, current_task, current_user_token, exit_current_and_run_next, mmap_current_task, suspend_current_and_run_next, unmap_current_task, write_byte_current_task, TaskStatus
     },
-    timer::{get_time_us, get_time_ms}
+    timer::{get_time_ms, get_time_us}
 };
 
 #[repr(C)]
@@ -168,20 +168,40 @@ pub fn sys_task_info(_ti: *mut TaskInfo) -> isize {
 
 /// YOUR JOB: Implement mmap.
 pub fn sys_mmap(_start: usize, _len: usize, _port: usize) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_mmap NOT IMPLEMENTED",
-        current_task().unwrap().pid.0
-    );
-    -1
+    if _start % 4096 != 0 {
+        error!("start should be aligned to 4096");
+        return -1;
+    }
+    let len_aligned = if _len % 4096 == 0 {
+        _len
+    } else {
+        (_len / 4096 + 1) * 4096
+    };
+    if _port & 0b111 == 0 {
+        error!("the lower 3 bits of port cannot be all zeros");
+        return -1;
+    }
+    if _port & !0b111 != 0 {
+        error!("other bits of port should be all zeros");
+        return -1;
+    }
+
+    mmap_current_task(_start, len_aligned, _port)
 }
 
 /// YOUR JOB: Implement munmap.
 pub fn sys_munmap(_start: usize, _len: usize) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_munmap NOT IMPLEMENTED",
-        current_task().unwrap().pid.0
-    );
-    -1
+    if _start % 4096 != 0 {
+        error!("start should be aligned to 4096");
+        return -1;
+    }
+    let len_aligned = if _len % 4096 == 0 {
+        _len
+    } else {
+        (_len / 4096 + 1) * 4096
+    };
+
+    unmap_current_task(_start, len_aligned)
 }
 
 /// change data segment size
@@ -197,11 +217,24 @@ pub fn sys_sbrk(size: i32) -> isize {
 /// YOUR JOB: Implement spawn.
 /// HINT: fork + exec =/= spawn
 pub fn sys_spawn(_path: *const u8) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_spawn NOT IMPLEMENTED",
-        current_task().unwrap().pid.0
-    );
-    -1
+    let current_task = current_task().unwrap();
+    let new_task = current_task.fork();
+    let new_pid = new_task.pid.0;
+    let trap_cx = new_task.inner_exclusive_access().get_trap_cx();
+    trap_cx.x[10] = 0;
+    let token;
+    {
+        token = new_task.inner_exclusive_access().memory_set.token();
+    }
+    
+    let path = translated_str(token, _path);
+    if let Some(data) = get_app_data_by_name(path.as_str()) {
+        new_task.exec(data);
+        add_task(new_task);
+        new_pid as isize
+    } else {
+        -1
+    }
 }
 
 // YOUR JOB: Set task priority.
