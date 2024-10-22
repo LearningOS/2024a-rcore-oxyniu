@@ -240,8 +240,8 @@ pub fn sys_spawn(_path: *const u8) -> isize {
 // YOUR JOB: Set task priority.
 pub fn sys_set_priority(_prio: isize) -> isize {
     if _prio < 2 {
-        panic!("The Priority of tasks should larger than 2!");
+        return -1;
     }
     set_priority_current_task(_prio as usize);
-    0
+    _prio
 }
