@@ -7,9 +7,9 @@ use crate::{
     fs::{open_file, OpenFlags},
     mm::{translated_refmut, translated_str},
     task::{
-        add_task, current_task, current_user_token, exit_current_and_run_next,
-        suspend_current_and_run_next, TaskStatus,
+        add_task, current_task, current_user_token, exit_current_and_run_next, suspend_current_and_run_next, mmap_current_task, unmap_current_task, write_byte_current_task, set_priority_current_task, TaskStatus,
     },
+    timer::{get_time_us, get_time_ms},
 };
 
 #[repr(C)]
@@ -118,40 +118,90 @@ pub fn sys_waitpid(pid: isize, exit_code_ptr: *mut i32) -> isize {
 /// HINT: You might reimplement it with virtual memory management.
 /// HINT: What if [`TimeVal`] is splitted by two pages ?
 pub fn sys_get_time(_ts: *mut TimeVal, _tz: usize) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_get_time NOT IMPLEMENTED",
-        current_task().unwrap().pid.0
-    );
-    -1
+    let us = get_time_us();
+    let timeval_size = core::mem::size_of::<TimeVal>();
+    let return_val = TimeVal {
+        sec: us / 1_000_000,
+        usec: us % 1_000_000,
+    };
+    let return_val_bytes = unsafe {
+        core::slice::from_raw_parts(
+            &return_val as *const TimeVal as *const u8,
+            timeval_size,
+        )
+    };
+    let start = _ts as usize;
+    trace!("{}", start);
+    for i in 0..timeval_size {
+        write_byte_current_task(start + i, return_val_bytes[i]);
+    }
+    0
 }
 
 /// YOUR JOB: Finish sys_task_info to pass testcases
 /// HINT: You might reimplement it with virtual memory management.
 /// HINT: What if [`TaskInfo`] is splitted by two pages ?
 pub fn sys_task_info(_ti: *mut TaskInfo) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_task_info NOT IMPLEMENTED",
-        current_task().unwrap().pid.0
-    );
-    -1
+    let task_info: TaskInfo;
+    {
+        let task = current_task().unwrap();
+        let inner = task.inner_exclusive_access();
+        task_info = TaskInfo {
+            status: inner.task_status,
+            syscall_times: inner.syscall_times,
+            time: get_time_ms() - inner.init_time,
+        };
+    }
+    let task_info_size = core::mem::size_of::<TaskInfo>();
+    let task_info_bytes = unsafe {
+        core::slice::from_raw_parts(
+            &task_info as *const TaskInfo as *const u8,
+            task_info_size,
+        )
+    };
+    let start = _ti as usize;
+    for i in 0..task_info_size {
+        write_byte_current_task(start + i, task_info_bytes[i]);
+    }
+    0
 }
 
 /// YOUR JOB: Implement mmap.
 pub fn sys_mmap(_start: usize, _len: usize, _port: usize) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_mmap NOT IMPLEMENTED",
-        current_task().unwrap().pid.0
-    );
-    -1
+    if _start % 4096 != 0 {
+        error!("start should be aligned to 4096");
+        return -1;
+    }
+    let len_aligned = if _len % 4096 == 0 {
+        _len
+    } else {
+        (_len / 4096 + 1) * 4096
+    };
+    if _port & 0b111 == 0 {
+        error!("the lower 3 bits of port cannot be all zeros");
+        return -1;
+    }
+    if _port & !0b111 != 0 {
+        error!("other bits of port should be all zeros");
+        return -1;
+    }
+
+    mmap_current_task(_start, len_aligned, _port)
 }
 
 /// YOUR JOB: Implement munmap.
 pub fn sys_munmap(_start: usize, _len: usize) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_munmap NOT IMPLEMENTED",
-        current_task().unwrap().pid.0
-    );
-    -1
+    if _start % 4096 != 0 {
+        error!("start should be aligned to 4096");
+        return -1;
+    }
+    let len_aligned = if _len % 4096 == 0 {
+        _len
+    } else {
+        (_len / 4096 + 1) * 4096
+    };
+
+    unmap_current_task(_start, len_aligned)
 }
 
 /// change data segment size
@@ -167,18 +217,32 @@ pub fn sys_sbrk(size: i32) -> isize {
 /// YOUR JOB: Implement spawn.
 /// HINT: fork + exec =/= spawn
 pub fn sys_spawn(_path: *const u8) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_spawn NOT IMPLEMENTED",
-        current_task().unwrap().pid.0
-    );
-    -1
+    let current_task = current_task().unwrap();
+    let new_task = current_task.fork();
+    let new_pid = new_task.pid.0;
+    let trap_cx = new_task.inner_exclusive_access().get_trap_cx();
+    trap_cx.x[10] = 0;
+    let token;
+    {
+        token = new_task.inner_exclusive_access().memory_set.token();
+    }
+    
+    let path = translated_str(token, _path);
+    if let Some(app_inode) = open_file(path.as_str(), OpenFlags::RDONLY) {
+        let all_data = app_inode.read_all();
+        new_task.exec(all_data.as_slice());
+        add_task(new_task);
+        new_pid as isize
+    } else {
+        -1
+    }
 }
 
 // YOUR JOB: Set task priority.
 pub fn sys_set_priority(_prio: isize) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_set_priority NOT IMPLEMENTED",
-        current_task().unwrap().pid.0
-    );
-    -1
+    if _prio < 2 {
+        return -1;
+    }
+    set_priority_current_task(_prio as usize);
+    _prio
 }

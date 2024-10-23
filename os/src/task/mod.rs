@@ -23,6 +23,8 @@ mod switch;
 mod task;
 
 use crate::fs::{open_file, OpenFlags};
+use crate::mm::VirtAddr;
+use crate::timer::get_time_ms;
 use alloc::sync::Arc;
 pub use context::TaskContext;
 use lazy_static::*;
@@ -36,6 +38,10 @@ pub use processor::{
     current_task, current_trap_cx, current_user_token, run_tasks, schedule, take_current_task,
     Processor,
 };
+
+/// BigStride
+pub const BIG_STRIDE: usize = 1_000_000_007;
+
 /// Suspend the current 'Running' task and run the next task in task list.
 pub fn suspend_current_and_run_next() {
     // There must be an application running.
@@ -43,6 +49,11 @@ pub fn suspend_current_and_run_next() {
 
     // ---- access current TCB exclusively
     let mut task_inner = task.inner_exclusive_access();
+
+    if task_inner.init_time == 0 {
+        task_inner.init_time = get_time_ms();
+    }
+
     let task_cx_ptr = &mut task_inner.task_cx as *mut TaskContext;
     // Change status to Ready
     task_inner.task_status = TaskStatus::Ready;
@@ -74,6 +85,11 @@ pub fn exit_current_and_run_next(exit_code: i32) {
 
     // **** access current TCB exclusively
     let mut inner = task.inner_exclusive_access();
+
+    if inner.init_time == 0 {
+        inner.init_time = get_time_ms();
+    }
+
     // Change status to Zombie
     inner.task_status = TaskStatus::Zombie;
     // Record exit code
@@ -119,4 +135,42 @@ lazy_static! {
 ///Add init process to the manager
 pub fn add_initproc() {
     add_task(INITPROC.clone());
+}
+
+/// translate and write one byte to the memory space of current task
+pub fn write_byte_current_task(dest: usize, data: u8) {
+    let task = current_task().unwrap();
+    let inner = task.inner_exclusive_access();
+    let vpn = VirtAddr::from(dest).floor();
+    let offset = VirtAddr::from(dest).page_offset();
+    let ppn = inner.memory_set.translate(vpn).unwrap().ppn();
+    ppn.get_bytes_array()[offset] = data;
+}
+
+/// update task's syscall times
+pub fn update_syscall_times(id: usize) {
+    let task = current_task().unwrap();
+    let mut inner = task.inner_exclusive_access();
+    inner.syscall_times[id] += 1;
+}
+
+/// map new pages for current task
+pub fn mmap_current_task(start: usize, len: usize, perm: usize) -> isize {
+    let task = current_task().unwrap();
+    let mut inner = task.inner_exclusive_access();
+    inner.memory_set.map_new_pages(start, len, perm)
+}
+
+/// unmap pages for current task
+pub fn unmap_current_task(start: usize, len: usize) -> isize {
+    let task = current_task().unwrap();
+    let mut inner = task.inner_exclusive_access();
+    inner.memory_set.unmap_pages(start, len)
+}
+
+/// set the priority of current task
+pub fn set_priority_current_task(prio: usize) {
+    let task = current_task().unwrap();
+    let mut inner = task.inner_exclusive_access();
+    inner.priority = prio;
 }
