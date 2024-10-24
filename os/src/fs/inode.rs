@@ -131,6 +131,16 @@ pub fn create_link(name: &str, linkto: &str) -> Option<(Arc<OSInode>, u32)> {
     })
 }
 
+/// delete a link
+pub fn delete_link(name: &str) -> isize {
+    ROOT_INODE.delete_link(name)
+}
+
+/// get link num
+pub fn get_link_num(id: u32) -> u32 {
+    ROOT_INODE.get_link_cnt(id)
+}
+
 impl File for OSInode {
     fn readable(&self) -> bool {
         self.readable

@@ -1,5 +1,5 @@
 //! File and filesystem-related syscalls
-use crate::fs::{open_file, create_link, OpenFlags, Stat, StatMode};
+use crate::fs::{create_link, delete_link, get_link_num, open_file, OpenFlags, Stat, StatMode};
 use crate::mm::{translated_byte_buffer, translated_str, UserBuffer};
 use crate::task::{current_task, current_user_token, write_byte_current_task};
 
@@ -85,7 +85,7 @@ pub fn sys_fstat(_fd: usize, _st: *mut Stat) -> isize {
         dev: 0,
         ino: inner.fd_id_table[_fd] as u64,
         mode: StatMode::FILE,
-        nlink: 1,
+        nlink: get_link_num(inner.fd_id_table[_fd]) as u32,
         pad: [0; 7],
     };
     let stat_size = core::mem::size_of::<Stat>();
@@ -118,9 +118,5 @@ pub fn sys_linkat(_old_name: *const u8, _new_name: *const u8) -> isize {
 
 /// YOUR JOB: Implement unlinkat.
 pub fn sys_unlinkat(_name: *const u8) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_unlinkat NOT IMPLEMENTED",
-        current_task().unwrap().pid.0
-    );
-    -1
+    delete_link(translated_str(current_user_token(), _name).as_str())
 }
