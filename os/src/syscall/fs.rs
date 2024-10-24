@@ -54,8 +54,8 @@ pub fn sys_open(path: *const u8, flags: u32) -> isize {
     if let Some((inode, id)) = open_file(path.as_str(), OpenFlags::from_bits(flags).unwrap()) {
         let mut inner = task.inner_exclusive_access();
         let fd = inner.alloc_fd();
-        inner.fd_table[fd] = Some(inode);
         inner.fd_id_table[fd] = id;
+        inner.fd_table[fd] = Some(inode);
         fd as isize
     } else {
         -1

@@ -76,7 +76,7 @@ fn easy_fs_pack() -> std::io::Result<()> {
         let mut all_data: Vec<u8> = Vec::new();
         host_file.read_to_end(&mut all_data).unwrap();
         // create a file in easy-fs
-        let (inode, _id) = root_inode.create(app.as_str()).unwrap();
+        let inode = root_inode.create(app.as_str()).unwrap();
         // write data to easy-fs
         inode.write_at(0, all_data.as_slice());
     }

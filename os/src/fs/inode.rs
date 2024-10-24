@@ -104,18 +104,23 @@ impl OpenFlags {
 pub fn open_file(name: &str, flags: OpenFlags) -> Option<(Arc<OSInode>, u32)> {
     let (readable, writable) = flags.read_write();
     if flags.contains(OpenFlags::CREATE) {
-        if let Some((inode, id)) = ROOT_INODE.find(name) {
+        if let Some(inode) = ROOT_INODE.find(name) {
             // clear size
             inode.clear();
+            let id = get_id(inode.block_id, inode.block_offset);
             Some((Arc::new(OSInode::new(readable, writable, inode)), id))
         } else {
             // create file
             ROOT_INODE
                 .create(name)
-                .map(|(inode, id)| (Arc::new(OSInode::new(readable, writable, inode)), id))
+                .map(|inode| {
+                    let id = get_id(inode.block_id, inode.block_offset);
+                    (Arc::new(OSInode::new(readable, writable, inode)), id)
+                })
         }
     } else {
-        ROOT_INODE.find(name).map(|(inode, id)| {
+        ROOT_INODE.find(name).map(|inode| {
+            let id = get_id(inode.block_id, inode.block_offset);
             if flags.contains(OpenFlags::TRUNC) {
                 inode.clear();
             }
@@ -125,9 +130,15 @@ pub fn open_file(name: &str, flags: OpenFlags) -> Option<(Arc<OSInode>, u32)> {
 }
 
 /// create a link
-pub fn create_link(name: &str, linkto: &str) -> Option<(Arc<OSInode>, u32)> {
-    ROOT_INODE.create_link(name, linkto).map(|(inode, id)| {
-        (Arc::new(OSInode::new(true, true, inode)), id)
+pub fn create_link(name: &str, linkto: &str) -> Option<Arc<OSInode>> {
+    let result = ROOT_INODE.find(linkto);
+    if result.is_none() {
+        return None;
+    }
+    let result = result.unwrap();
+    let id = get_id(result.block_id, result.block_offset);
+    ROOT_INODE.create_link(name, id, linkto).map(|inode| {
+        Arc::new(OSInode::new(true, true, inode))
     })
 }
 
@@ -139,6 +150,11 @@ pub fn delete_link(name: &str) -> isize {
 /// get link num
 pub fn get_link_num(id: u32) -> u32 {
     ROOT_INODE.get_link_cnt(id)
+}
+
+/// get inode id
+pub fn get_id(block_id: usize, block_offset: usize) -> u32 {
+    ROOT_INODE.get_inode_id(block_id, block_offset)
 }
 
 impl File for OSInode {
