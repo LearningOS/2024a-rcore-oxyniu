@@ -101,27 +101,34 @@ impl OpenFlags {
 }
 
 /// Open a file
-pub fn open_file(name: &str, flags: OpenFlags) -> Option<Arc<OSInode>> {
+pub fn open_file(name: &str, flags: OpenFlags) -> Option<(Arc<OSInode>, u32)> {
     let (readable, writable) = flags.read_write();
     if flags.contains(OpenFlags::CREATE) {
-        if let Some(inode) = ROOT_INODE.find(name) {
+        if let Some((inode, id)) = ROOT_INODE.find(name) {
             // clear size
             inode.clear();
-            Some(Arc::new(OSInode::new(readable, writable, inode)))
+            Some((Arc::new(OSInode::new(readable, writable, inode)), id))
         } else {
             // create file
             ROOT_INODE
                 .create(name)
-                .map(|inode| Arc::new(OSInode::new(readable, writable, inode)))
+                .map(|(inode, id)| (Arc::new(OSInode::new(readable, writable, inode)), id))
         }
     } else {
-        ROOT_INODE.find(name).map(|inode| {
+        ROOT_INODE.find(name).map(|(inode, id)| {
             if flags.contains(OpenFlags::TRUNC) {
                 inode.clear();
             }
-            Arc::new(OSInode::new(readable, writable, inode))
+            (Arc::new(OSInode::new(readable, writable, inode)), id)
         })
     }
+}
+
+/// create a link
+pub fn create_link(name: &str, linkto: &str) -> Option<(Arc<OSInode>, u32)> {
+    ROOT_INODE.create_link(name, linkto).map(|(inode, id)| {
+        (Arc::new(OSInode::new(true, true, inode)), id)
+    })
 }
 
 impl File for OSInode {

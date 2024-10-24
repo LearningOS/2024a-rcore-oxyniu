@@ -84,6 +84,9 @@ pub struct TaskControlBlockInner {
 
     /// program stride
     pub stride: usize,
+
+    /// record fd inode id
+    pub fd_id_table: Vec<u32>,
 }
 
 impl TaskControlBlockInner {
@@ -104,6 +107,7 @@ impl TaskControlBlockInner {
             fd
         } else {
             self.fd_table.push(None);
+            self.fd_id_table.push(0);
             self.fd_table.len() - 1
         }
     }
@@ -152,6 +156,7 @@ impl TaskControlBlock {
                     init_time: 0,
                     priority: 16,
                     stride: 0,
+                    fd_id_table: vec![0, 0, 0],
                 })
             },
         };
@@ -237,6 +242,7 @@ impl TaskControlBlock {
                     init_time: 0,
                     priority: 16,
                     stride: 0,
+                    fd_id_table: vec![0, 0, 0],
                 })
             },
         });
